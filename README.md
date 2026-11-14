@@ -1,5 +1,7 @@
 # Zoom R8 custom firmware
 
+<p align="center"><img src="images/r8.jpg" width="720" alt="A Zoom R8 running the Forth app from this repository: its LCD shows the Forth console in the project's own font"></p>
+
 Notes, source code and tools for running your own code on the Zoom R8 multitrack recorder (stock firmware 1.17).
 
 Start with the writeup: [writeup/README.md](writeup/README.md). To build the code and run it on your R8, follow [writeup/getting-started.md](writeup/getting-started.md).
@@ -17,6 +19,7 @@ The Zoom R8 is over a decade old, but the hardware is quite capable and it featu
 | `writeup/` | Notes for firmware writers: hardware, stock firmware, safety, techniques, panel protocol, addresses |
 | `cbuild/` | C and assembly source for the apps (Forth, Blippoo, PADTEST, POWERLOG, the chooser, utilities, the standalone synth) and the shared runtime |
 | `tools/` | Python tools: firmware image handling, packaging, the C674x simulator and the test scripts, `fs.py` (talk to the Forth app), `r8card.py` (card status and deploy), `run_tests.py`, `doccheck.py` |
+| `images/` | Photos for the README |
 | `.claude/` | For Claude Code: the `r8-firmware` skill (how to work on this project safely) and a hook (`tools/r8guard.py`) that blocks commands breaking the safety rules |
 
 ## What you need to supply
