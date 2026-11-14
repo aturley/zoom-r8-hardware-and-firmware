@@ -1,0 +1,18 @@
+# Your own stock firmware and captures. Never commit these: R8SYS.BIN and
+# anything extracted from it are Zoom's. Create fw/ yourself and put your
+# R8SYS.BIN (1.17) in it; see writeup/10-tools.md.
+/fw
+/data
+
+# Build output
+out/
+*.obj
+*.out
+*.map
+*.BIN
+__pycache__/
+*.pyc
+
+# Local scratch
+.DS_Store
+cbuild/forth/font_stock.h

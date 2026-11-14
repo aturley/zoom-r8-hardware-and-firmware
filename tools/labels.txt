@@ -1,0 +1,79 @@
+# address   label   (derived; see README)
+c07fab00  _c_int00
+c076a018  task_init_task_unnamed   ; stack 0x2000
+c07ccd78  task_MainMenu   ; stack 0x800
+c07dda98  task_LCD   ; stack 0x1000
+c079e020  task_Panel   ; stack 0x800
+c07bbd38  task_AudioCmdRcv   ; stack 0x800
+c07b4ca8  task_SerialHandler   ; stack 0x800
+c079f770  task_Pad   ; stack 0x800
+c0792800  task_SDriver   ; stack 0x800
+c074c198  task_RhyHdr   ; stack 0x800
+c073c9f4  task_EfxQFuncs   ; stack 0x800
+c07e8d14  task_ARRM   ; stack 0x800
+c077bf50  task_RecApi   ; stack 0x800
+c07e5fec  task_TransportManager   ; stack 0x1000
+c078234c  task_ZStream_IO   ; stack 0x1000
+c0782004  task_ZStream   ; stack 0x1000
+c07ca06c  task_Tuner   ; stack 0x800
+11804600  task_TimeStretch   ; stack 0x800
+c07ee568  task_AIF_ManageTask   ; stack 0x800
+c07d5f90  task_UsbMidiRxTask   ; stack 0x800
+c07f3324  task_AudioClkMng   ; stack 0x800
+c07d62ec  task_UsbMidiTxTask   ; stack 0x800
+c07fb220  task_IdleTask   ; stack 0x800
+c07d4da0  uart_base(ch) -> UART0/1/2 base
+c07d50b8  uart_open (divisor from 180 MHz)
+c07d5350  uart write (used by sub-MCU link)
+c07d54a8  uart read
+c07a60e0  McASP0 init (+AFIFO)
+c07a73d8  McASP0 driver
+c07a7184  audio EDMA (CC0)
+c07a7550  SD/MMC driver cluster start (..c07a8844)
+c07d92d0  SPI0/SPI1 driver
+c07d9610  SPI driver
+c07e3320  I2C0 driver
+c07e3564  I2C0 driver
+c07f2220  GPIO helpers (..c07f2380)
+c07f69c0  McBSP0
+c07e4040  EDMA3 CC0 driver (..c07e43a4)
+c07e51c0  EDMA3 CC1 driver (..c07e5504)
+c076ac14  USB0 stack region (..c076e0d8)
+c07f7280  integer divide helper (294 callers)
+# peripheral pointer globals (initialized by .cinit, read via B14):
+c0813870  ptr_SPI0
+c0813874  ptr_SPI1
+c0813868  ptr_I2C0
+c081365c  ptr_McASP0
+c0813660  ptr_McASP0_AFIFO
+c08138e8  ptr_GPIO
+c08138f0  ptr_McBSP0
+c08138b0  ptr_TIMER0
+
+# LCD (found 2026-11-06): ST7565-family controller, driven by the DSP over SPI (not via the panel processor)
+0xc07dda98 task_LCD                 renders into 1 KB 1-bpp buffers (0xc05f4178, 0xc05f4578; also 0xc05f4d88, 0xc05f5188)
+0xc0748250 lcd_hand_off             copies a buffer to the LCD hardware module (via 0xc07ccf34) and signals it
+0xc07ccbf0 lcd_hw_init              SPI setup (instance arg 1, 10 MHz), init sequence, shadow buffers 0xc05fb000 (0x00) / 0xc05fb400 (0xFF)
+0xc07cc994 lcd_init_seq             reset pulse, then AE A2 A0 C0 26 81 0D A6 A4 40 B0 10 00 2C.. (ST7565 command set)
+0xc07cc90c lcd_cmd(byte)            CS low, A0=0, SPI 1 byte, CS high
+0xc07cc950 lcd_data(byte)           CS low, A0=1, SPI 1 byte, CS high
+0xc07cc8f0 lcd_spi_send(buf,len)    -> SPI driver 0xc07d988c
+0xc07cc894 lcd_cs(level)            GPIO bank 2 pin 14 (from the call arguments)
+0xc07cc8c0 lcd_a0(level)            GPIO bank 8 pin 9 (clear branch; set branch not fully decoded)
+0xc07cc868 lcd_reset(level)?        GPIO bank 8, pin not decoded
+0xc06e90f8 font_5px                 5-column bitmap font in .const
+0xc07d4e00 uart_isr                 UART interrupt handler (ring buffers at 0xc05ee198)
+
+# LCD buffer chain (settled 2026-11-06)
+0xc05f4178 vram_main[1024]          firmware draws here; byte = page*128 + column (page = 8-pixel row band)
+0xc05f4578 vram_overlay[1024]       XORed onto vram_main (cursor/highlight layer)
+0xc081310c lcd_dirty_pages (B14+0x5ec)  one bit per page; drawing sets it, lcd_flush_pages clears it
+0xc081311a lcd_freeze (B14+0x5fa, byte) nonzero = lcd_flush_pages does nothing
+0xc0748250 lcd_flush_pages          for each dirty page: buf[x] = vram_main ^ vram_overlay, then lcd_put(page*128, 128, buf)
+0xc07ccf34 lcd_put(off, n, src)     lock, copy into fb_target+off, unlock, wake the LCD hardware task (must be called from a Task)
+0xc05fb000 fb_target[1024]          what the screen should show
+0xc05fb400 fb_blink_mask[1024]      ANDed in while blinking is active (init 0xFF = all visible)
+0xc05fb800 fb_out[1024]             fb_target (& blink mask), cache written back, then sent to the LCD
+0xc07ccd78 lcd_hw_task              (Text-table label said task_MainMenu; that name is wrong) sends all 8 pages via 0xc07ccb08(page, ptr, 128)
+0xc07ccd20 lcd_blink_clock          periodic clock callback that drives blinking
+0xc07fc480 cache_wb(addr, len, ..)  L2 cache controller 0x01844000

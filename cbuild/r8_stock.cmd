@@ -1,0 +1,27 @@
+/* Stock v1.17 function addresses */
+r8_strlen       = 0xc07fb800;
+r8_open         = 0xc0763c6c;
+r8_read         = 0xc0763b2c;
+r8_write        = 0xc0762db8;
+r8_seek         = 0xc0764050;
+r8_close        = 0xc0765c6c;
+r8_delete       = 0xc0762ee0;
+r8_rename       = 0xc07639e8;
+r8_info         = 0xc07daecc;
+r8_track_file   = 0xc077bdb4;
+r8_track_detach = 0xc077bcec;
+r8_track_attach = 0xc077bc14;
+r8_clear_undo   = 0xc079240c;
+r8_card_check   = 0xc0771db8;
+r8_pre_msg      = 0xc07f670c;
+r8_show_msg     = 0xc0798878;
+r8_dialog_close = 0xc07988d0;
+r8_popup        = 0xc0797d90;
+r8_cache_wbinv  = 0xc07fc460;
+r8_cache_inv_l1p = 0xc07f8860;
+r8_find_first   = 0xc0764ec0;
+r8_find_next    = 0xc0764b2c;
+r8_find_close   = 0xc0765188;
+r8_menu_engine  = 0xc078ed80;
+r8_ui_event     = 0xc07b5b58;
+r8_sample_rate  = 0xc07d3fe0;
