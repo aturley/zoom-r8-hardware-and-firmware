@@ -94,7 +94,21 @@ Our first standalone builds were a test pattern on the LCD, then a fader display
 
 ## 4. Apps loaded from the card
 
-A launcher firmware (stock plus a RUN APP menu item) loads `A:\APP.BIN` into L2 and jumps to it, after taking over the machine from the stock firmware. The app format (`mkapp.py`) is a 32-byte header: magic `R8AP`, version, load address, length, entry point, CRC-32 of the image, and the top of its memory. An app must fit 0x11800000–0x1182C000 (image plus uninitialised data); the stack sits above. Large buffers can go in DDR, which the app owns once it has taken over.
+A launcher firmware (stock plus a RUN APP menu item) loads `A:\APP.BIN` into L2 and jumps to it, after taking over the machine from the stock firmware. The app format (`tools/mkapp.py`) is a 32-byte header: magic `R8AP`, version, load address, length, entry point, CRC-32, the top of its L2 memory, and a segment count. The L2 part must fit 0x11800000–0x1182C000 (image plus uninitialised data); the stack sits above. The DDR is the app's once it has taken over.
+
+**Code and data in DDR (since 14 November).** L2 is only 176 KB. Apps built with `cbuild/forth/l2.cmd` (the Forth app, the sampler and forks of them) can place sections in an **app DDR window, 0xC0000000–0xC00FFFFF**, by name:
+
+```c
+#pragma CODE_SECTION(draw_waveform, ".ddrtext")   /* code that isn't time-critical */
+#pragma DATA_SECTION(note_names, ".ddrdata")      /* initialised data, loaded from the file */
+#pragma DATA_SECTION(big_table, ".ddrbss")        /* uninitialised data, zeroed by core_init like .bss */
+```
+
+Keep interrupt handlers, per-sample loops and their tables in L2: DDR is cached, but a cache miss costs DDR latency. Calls between L2 and DDR code are too far for a direct call; the linker adds trampolines automatically. The Forth core keeps its 60 KB of dictionary, code and data space in `.ddrbss`, and the Forth app's `SD-RCMP`/`SD-WCMP` words are `.ddrtext`. `DDR-INFO` shows the window and checks that the loader placed `.ddrdata`.
+
+An app file with DDR sections is **version 2**: the L2 image, then each DDR segment as address, length and data, with the CRC over everything after the header. The chooser and `RELOAD` (`cbuild/forth/reload.c`) load it: the checks cover the window and the file length, and a trampoline in DDR copies every segment, writes back the data cache and invalidates the program cache before jumping. Files of up to 512 KB are accepted. The flash launcher only loads version 1, which is why the chooser stays L2-only, and why `mkapp.py` writes version 1, unchanged, for any app without DDR sections. An app running the old loader can't `RELOAD` a version 2 file; start it from an updated chooser once.
+
+DDR while an app runs: 0xC0000000–0xC00FFFFF the app DDR window; 0xC0100000–0xC023FFFF core buffers (USB storage writes, SD tests); 0xC0300000–0xC037FFFF the loader's stage; 0xC0380000 `fat.c`'s cluster list (32 KB) and 0xC0388000 `fat_mkdir`'s scratch (64 KB); 0xC03F0000 the trampoline and 0xC03F8000 its copy list; 0xC03FFF00 the launch info; **0xC0400000–0xC3FFFFFF free for the app's own buffers** (60 MB). Appendix B has the table.
 
 Once an app has its own USB driver (ours exposes the card as a USB drive), the development loop no longer needs the card to leave the R8:
 

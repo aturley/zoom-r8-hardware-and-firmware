@@ -42,14 +42,17 @@ def run(script_fn, usb=False, max_s=3.0):
     C = r8sd.SdModel(sim, blocks=nblk + 1024, hc=True, image=blocks)
     U = r8usb.Musb(sim, B, vbus_sensed=False)
     sim.mocks[syms['delay_us']] = lambda s: None
-    sim.mocks[FORTH_SYMS['delay_us']] = lambda s: None   # the launched app's own copy (else its real delays outlast the host's wait)
+    sim.mocks[FORTH_SYMS['delay_us']] = lambda s: None
+    sim.write(0xC05B60C8, struct.pack('<I', 1))          # stock's BATTERY setting: Ni-MH   # the launched app's own copy (else its real delays outlast the host's wait)
     out = {}
     G = script_fn(sim, B, U, out)
     class Stop(Exception): pass
     n = [0]
     def tr(s, pc, pk):
         U.tick(); n[0] += 1
-        if pc >= 0xC0000000 and syms['delay_us'] in sim.mocks: del sim.mocks[syms['delay_us']]   # trampoline running: the app
+        if pc >= 0xC0000000 and syms['delay_us'] in sim.mocks:
+            del sim.mocks[syms['delay_us']]                  # trampoline running: the app
+            sim.write(0xC05B60C8, struct.pack('<I', 0))      # and a previous app's buffers overwrote stock's setting
         # is about to overwrite L2, and the chooser's delay_us address then lies inside the app's code (it hit status())
         if n[0] & 31 == 0:
             try: next(G)
@@ -79,6 +82,7 @@ def script1(sim, B, U, out):
     yield U.until(lambda: b'running word' in U.in_data, 'banner', 300_000_000)
     out['banner'] = U.in_data.decode('latin1')
     out['launched'] = sim.read(0xC03FFF04, 32).split(b'\0')[0].decode('latin1')
+    out['battcopy'] = struct.unpack('<2I', sim.read(0xC03FFFE0, 8)); out['batt_type'] = sim.rd32(FORTH_SYMS['batt_type'])
     n0 = len(U.in_data); U.out_q += b'RELOAD\r'
     yield U.until(lambda: b'restarting' in U.in_data[n0:] or b'RELOAD:' in U.in_data[n0:], 'reload', 300_000_000)
     out['reload'] = U.in_data[n0:].decode('latin1')
@@ -110,6 +114,8 @@ check('the wheel moves the selection too (back to 1/3)', inv[1] and rows[0].ends
 rows, inv = out.get('lcd2', ([''] * 8, [False] * 8))
 check('selection on FORTH.BIN (3/3)', inv[3] and rows[0].endswith('3/3'))
 check('ENTER starts it: the Forth app enumerates on USB and prints its banner', out.get('enum', {}).get('done') and 'R8 Forth' in out.get('banner', ''))
+check(f'the chooser saved stock\'s BATTERY setting ({out.get("battcopy")}) and the app uses it although stock\'s word was overwritten (batt_type {out.get("batt_type")})',
+      out.get('battcopy') == (0x54423852, 1) and out.get('batt_type') == 1)
 check(f'the app knows its path ({out.get("launched")!r})', out.get('launched') == 'R8APPS/FORTH.BIN')
 check('the app\'s RELOAD reloads that same file', 'R8APPS/FORTH.BIN ok, restarting' in out.get('reload', ''))
 # ---- run 2: EXIT restarts via the watchdog

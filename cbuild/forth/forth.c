@@ -20,12 +20,15 @@ static void (*ext_fn[NEXT])(void);
 static int n_ext;
 #define NW 512
 struct word { char name[16]; unsigned char imm, kind, hidden, pad; cell p; };
+#pragma DATA_SECTION(dict, ".ddrbss")       /* the three big buffers live in DDR (l2.cmd): 60 KB of L2 freed */
 static struct word dict[NW];
 static int nwords;
-#define NCODE 8192                     /* 32 KB of threaded code; L2 is shared with the looper and USB buffers */
+#define NCODE 8192                     /* 32 KB of threaded code */
+#pragma DATA_SECTION(code, ".ddrbss")
 static cell code[NCODE];
 static int here_c;
 #define NDATA 16384
+#pragma DATA_SECTION(dspace, ".ddrbss")
 static unsigned char dspace[NDATA] __attribute__((aligned(8)));
 static ucell dhere;
 static cell ds[256], rs[256];

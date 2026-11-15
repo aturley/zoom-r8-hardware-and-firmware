@@ -114,7 +114,7 @@ Code running inside the stock firmware can use Zoom's file API rather than its o
 - **The pattern is matched the DOS way.** `*.*` only matches names that contain a dot, so it leaves out most folders. Use `dir\*` to list everything.
 - **Hidden entries:** a Mac's `.Spotlight-V100` and `.Trashes` folders appear as `SPOTLI~1` and `TRASH~16` with attributes 0x12; a file picker should hide hidden and system entries.
 
-Our own FAT32 code (section 8, also used by the Blippoo app) is more limited: it creates new files only, from free clusters and an unused directory slot, and one call takes at most 8192 clusters (32 MB with 4 KB clusters).
+Our own FAT32 code (`cbuild/forth/fat.c`, used by every app) is more limited. It reads whole files, or any part of one through an extent map (`fat_map`, `fat_read_some`, `fat_read_at`; since 15 November), lists folders with long names (`fat_next`, resumable from any saved position), and creates new files and folders (`fat_create`, `fat_mkdir`) from free clusters and an unused directory slot. It never changes or deletes existing entries, and one `fat_create` call takes at most 8192 clusters (32 MB with 4 KB clusters).
 
 ## USB (USB0)
 
@@ -134,6 +134,7 @@ The R8 runs from USB power or four AA batteries; there is no other power jack.
 | Ni-MH | 228, 248, 253, 256 | 4.87, 5.25, 5.35, 5.41 | 233, 247, 252 |
 
   At level 1 for more than 4 s stock posts event `0x40000009`, repeated every 4 s; at level 0 it posts `0x4000000A`, up to 10 times. `0x4000000A` is also what stock's power-switch reader posts when the switch goes off, so an empty battery is handled like turning the R8 off (firmware, matched by event code). That `0x40000009` is the "Low Battery!" warning is inferred, not traced.
+- **The setting in an app:** stock keeps the BATTERY setting at 0xC05B60C8, in DDR an app is free to reuse. So it is only reliable straight after stock ran: our chooser copies it to 0xC03FFFE0 (`R8BT`, value) and apps read the copy (`cbuild/synth/battery.c`). Before 14 November the apps read stock's word at start-up, which an earlier app's buffers could already have overwritten.
 - **For your own firmware:** on batteries (GP6[1] low), treat alkaline `C1` below about 213 as low and below 203 as empty (Ni-MH: 233 and 228), save your work and switch off (power hold GP7[0] low).
 
 ## Input switches and phantom power

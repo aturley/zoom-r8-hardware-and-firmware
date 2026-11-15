@@ -5,6 +5,7 @@
 #include "core.h"
 #include "forth.h"
 #include "sd.h"
+#include "fat.h"
 #define puts_ core_puts
 
 static void sd_rep(int e) { if (e) { puts_(" SD error "); forth_dot(e); puts_("(MMCST0 "); forth_hex(sd_last_st, 4); puts_(") "); } }
@@ -15,6 +16,12 @@ static void sd_rep(int e) { if (e) { puts_(" SD error "); forth_dot(e); puts_("(
    (-2: refused, -3: reference read failed, -4: long read failed). SD-FLAGS ( mask -- ): MMCCMD flags for the long
    read, any of PPLEN 0x80, DCLR 0x8000, DMATRIG 0x10000 (ours: 8080; stock: 10000). SD-CLK ( clkrt -- ): card clock
    90 MHz / (clkrt + 1), 3..255 (3 = 22.5 MHz, the default since 2026-11-14; 4 = 18 MHz). SD-INIT puts the clock back to 3. */
+/* These experiment words are rarely used, so they live in the DDR window (l2.cmd): an example of .ddrtext. */
+#pragma CODE_SECTION(rate, ".ddrtext")
+#pragma CODE_SECTION(w_sd_rcmp, ".ddrtext")
+#pragma CODE_SECTION(w_sd_flags, ".ddrtext")
+#pragma CODE_SECTION(w_sd_clk, ".ddrtext")
+#pragma CODE_SECTION(w_sd_wcmp, ".ddrtext")
 static void rate(u32 bytes, u32 cyc)
 {
     u32 us = cyc / (CPU_HZ / 1000000u);
@@ -90,6 +97,48 @@ static void w_sd_wcmp(void)
     puts_(" same "); forth_push(-1);
 }
 
+/* FSEEK-TEST ( -- ): fat_map / fat_read_some / fat_read_at on a real file, A:\R8SYS.BIN (read-only). Maps it, reads it
+   sequentially in 128-block steps into DDR with a CRC-32 (compare with the computer's), then reads 50 random unaligned
+   pieces with fat_read_at and compares each with the sequential copy. Prints extents, rates and the slowest seek. */
+#define FT_EXT ((fat_ext *)0xC1F00000u)        /* 512 extents, in the free DDR above 0xC0400000 */
+#define FT_ALL ((u8 *)0xC0400000u)             /* the whole file (the Forth app leaves DDR from here free) */
+#define FT_PIECE ((u8 *)0xC2000000u)
+#pragma CODE_SECTION(w_fseek_test, ".ddrtext")
+static void w_fseek_test(void)
+{
+    static fat_ent e; static fat_map_t m;
+    if (fat_find("R8SYS.BIN", &e)) { puts_(" no R8SYS.BIN in the card root "); return; }
+    if (e.size > 0x1800000u) { puts_(" file too big for the test buffer "); return; }
+    u32 t = TSCL;
+    int r = fat_map(&e, &m, FT_EXT, 512);
+    puts_(" map "); forth_dot((int)((TSCL - t) / 360)); puts_("us, "); forth_dot((int)m.n); puts_("extents;");
+    if (r) { puts_(" fat_map error "); forth_dot(r); return; }
+    u32 off = 0, got, crc = ~0u; t = TSCL;
+    while (off < e.size) {
+        r = fat_read_some(&m, off, FT_ALL + off, e.size - off, 128, &got);
+        if (r || !got) { puts_(" read error at "); forth_dot((int)off); return; }
+        off += got; forth_poll();
+    }
+    u32 us = (TSCL - t) / 360;
+    for (u32 i = 0; i < e.size; i++) { crc ^= FT_ALL[i]; for (int k = 0; k < 8; k++) crc = crc >> 1 ^ (0xEDB88320u & -(crc & 1)); }
+    crc = ~crc;
+    puts_(" sequential "); forth_dot((int)e.size); puts_("bytes in "); forth_dot((int)us); puts_("us = ");
+    forth_dot(us ? (int)(e.size / us) : 0); puts_("bytes/us, crc32 "); forth_hex(crc, 8); puts_(";");
+    u32 x = 12345, worst = 0, bad = 0;
+    for (int k = 0; k < 50; k++) {
+        x = x * 1103515245u + 12345u; u32 o = (x >> 2) % (e.size - 70000);
+        x = x * 1103515245u + 12345u; u32 n = 1 + (x >> 8) % 65536;
+        t = TSCL;
+        r = fat_read_at(&m, o, FT_PIECE + (k & 3), n);
+        u32 dt = TSCL - t; if (dt > worst) worst = dt;
+        if (r) { puts_(" fat_read_at error "); forth_dot(r); return; }
+        for (u32 i = 0; i < n; i++) if (FT_PIECE[(k & 3) + i] != FT_ALL[o + i]) { bad++; break; }
+        forth_poll();
+    }
+    puts_(" 50 random reads (1..64 KB, unaligned): "); forth_dot((int)bad); puts_("differ, slowest ");
+    forth_dot((int)(worst / 360)); puts_("us ");
+}
+
 static const struct core_app forth_app = { "FORTH", "R8 Forth" };   /* no hooks: the console owns everything */
 
 int main(void)
@@ -97,5 +146,6 @@ int main(void)
     core_init(&forth_app);
     /* ad hoc words go here, e.g. forth_word("MY-TEST", w_my_test); */
     forth_word("SD-RCMP", w_sd_rcmp); forth_word("SD-FLAGS", w_sd_flags); forth_word("SD-CLK", w_sd_clk); forth_word("SD-WCMP", w_sd_wcmp);
+    forth_word("FSEEK-TEST", w_fseek_test);
     core_run();
 }

@@ -39,6 +39,8 @@ def script(m):
     R['over'] = yield from serial(m, f'{PART - 7} 8 4 SD-WCMP .\r')
     R['zero'] = yield from serial(m, '0 4 5 SD-WCMP .\r')
     R['big'] = yield from serial(m, '300 129 6 SD-WCMP .\r')
+    n0 = len(C.writes); R['busy'] = yield from serial(m, '400 16 3 SD-BUSY\r'); R['wbusy'] = C.writes[n0:]
+    R['busy_over'] = yield from serial(m, f'{PART - 4} 8 1 SD-BUSY\r')
     R['done'] = True
 U.start(script)
 class Stop(Exception): pass
@@ -51,7 +53,7 @@ sim.R[S.ridx(1, 3)] = 0xcafe0000
 try: sim.run(syms['r8_boot'], 0xcafe0000, max_cycles=10 ** 12)
 except Stop: pass
 print(f'  {sim.cycle:,} cycles; host errors: {U.errors}; card errors: {C.errors}; writes: {C.writes}')
-for k in ('seven', 'nine', 'nine_old', 'edge', 'over', 'zero', 'big'): print(f'  {k}: {R.get(k, "")!r}')
+for k in ('seven', 'nine', 'nine_old', 'edge', 'over', 'zero', 'big', 'busy', 'busy_over'): print(f'  {k}: {R.get(k, "")!r}')
 check('boots and the card initialises', R.get('enum', {}).get('done') and ' 0  ok' in R.get('init', ''))
 check('7 blocks in one CMD25 at block 100: "same", -1', 'same' in R.get('seven', '') and '-1  ok' in R.get('seven', ''))
 check('that was one 7-block write at block 100', R.get('w7') == [(100, 7)])
@@ -63,6 +65,8 @@ check('block 0 (the MBR) refused', '-2  ok' in R.get('zero', ''))
 check('n = 129 refused', '-2  ok' in R.get('big', ''))
 check('every write ended before the partition', all(b + n <= PART for b, n in C.writes))
 check('the first 64 partition blocks are unchanged', [C.block(PART + k) for k in range(64)] == before)
+check(f'SD-BUSY 400 16 3: three 16-block writes at 400 ({R.get("wbusy")}), reports busy and throughput', R.get('wbusy') == [(400, 16)] * 3 and 'busy avg' in R.get('busy', '') and 'slowest write' in R.get('busy', ''))
+check('SD-BUSY reaching into the partition is refused', 'only blocks 1..' in R.get('busy_over', '') and 'busy avg' not in R.get('busy_over', ''))
 check('no card protocol errors', not C.errors)
 check('no USB errors', not U.errors)
 print('FAILURES:', fails if fails else 'none')

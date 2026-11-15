@@ -1041,6 +1041,8 @@ class Sim:
 
 def load_elf(sim, path):
     import celf
-    base, img, syms, top = celf.image(path)
-    sim.write(base, img)
+    regs, syms = celf.regions(path)
+    for b, im, t in regs:                                   # every region: L2, and an app's DDR window if any
+        if im: sim.write(b, im)
+    base, img, top = next(r for r in regs if r[1])
     return base, img, syms, top

@@ -432,7 +432,7 @@ Events: CC0 0 = McASP0 receive, 1 = McASP0 transmit (stock, firmware); CC1 28 = 
 
 | Region | Use | Valid when | Confidence | Where |
 | --- | --- | --- | --- | --- |
-| 0x11800000–0x1182C000 | App image plus uninitialised data | app owns the machine | hardware | `cbuild/launcher/app.h` |
+| 0x11800000–0x1182C000 | App image plus uninitialised data (L2 part) | app owns the machine | hardware | `cbuild/launcher/app.h`, `cbuild/forth/reload.c` |
 | up to 0x11830000 | App stack (top) | app | hardware | `cbuild/forth/l2.cmd` |
 | 0xC0050000–0xC0250000 | Boot loader's buffer: not zero at start-up; idle while stock 1.17 runs | stock 1.17 | hardware | [6](06-quirks.md) |
 | 0xC0050000, 0xC0060000–0xC0061FFF | REVERSE buffers, header, info, log | patched stock | hardware | `tools/revmenu.py` |
@@ -442,10 +442,15 @@ Events: CC0 0 = McASP0 receive, 1 = McASP0 transmit (stock, firmware); CC1 28 = 
 | 0xC0080000 (≤ 0x30000) | `APP.BIN` staging before take-over | patched stock | hardware | `cbuild/launcher/app.h` |
 | 0xC0100000–0xC0110000 | `UTILMENU.SYS` | inside stock 1.17 | hardware | `cbuild/utils/menu.cmd` |
 | 0xC0110000–0xC0240000 | Utilities (R8UT) | inside stock 1.17 | hardware | `cbuild/utils/util.cmd` |
+| 0xC0000000–0xC00FFFFF | App DDR window: `.ddrtext`, `.ddrdata`, `.ddrbss` of apps linked with `cbuild/forth/l2.cmd` (version 2 app files) | app | simulator (14 Nov) | `cbuild/forth/l2.cmd`, `tools/mkapp.py` |
+| 0xC0100000–0xC010FFFF | USB storage write buffer (64 KB) | app | hardware | `cbuild/forth/msc.h` |
 | 0xC0100000, 0xC0200000 | SD test buffers (`SD-TEST` in the core; `SD-RCMP`, `SD-WCMP` in the Forth app) | app | hardware | `cbuild/forth/core.c`, `cbuild/forth/main.c` |
-| 0xC0300000 | `RELOAD` staging | app | hardware | `cbuild/forth/reload.c` |
-| 0xC03F0000 | `RELOAD` trampoline | app | hardware | same |
+| 0xC0300000–0xC037FFFF | App file staging for the chooser and `RELOAD` (≤ 512 KB since 14 Nov; 192 KB before) | app | hardware | `cbuild/forth/reload.c` |
+| 0xC0388000–0xC0397FFF | `fat_mkdir`'s scratch: the new folder's first cluster (up to 64 KB) | app | simulator (15 Nov) | `cbuild/forth/fat.c` |
+| 0xC0380000–0xC0387FFF | `fat_create`'s cluster list | app | hardware | `cbuild/forth/fat.c` |
+| 0xC03F0000 | Loader trampoline; its copy list at 0xC03F8000 | app | hardware (list: simulator, 14 Nov) | `cbuild/forth/reload.c`, `cbuild/forth/tramp.asm` |
 | 0xC03FFF00 | Launch info: `R8LP` + path of the app the chooser started | app | hardware | `cbuild/forth/reload.h` |
+| 0xC03FFFE0 | `R8BT` + stock's BATTERY setting, copied by the chooser for the apps (stock's own word at 0xC05B60C8 lies in the apps' buffer area) | app | simulator (14 Nov) | `cbuild/synth/battery.c` |
 | 0xC0400000–0xC4000000 | Looper slots in the sampler (15 MB per track), Blippoo recording, PADTEST and POWERLOG logs | app | hardware | `cbuild/sampler/looper.c`, `cbuild/blippoo/main.c`, `cbuild/padtest/main.c`, `cbuild/powerlog/main.c` |
 
 ## Register values: stock and ours

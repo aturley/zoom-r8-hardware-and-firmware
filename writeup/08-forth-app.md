@@ -11,7 +11,7 @@ The core (`forth/core.c`, `core.h`) holds the console, USB, storage, the power s
 
 | File | Role |
 | --- | --- |
-| `entry.asm`, `l2.cmd` | Entry point and link map (everything in L2, 0x11800000–0x1182C000), shared by both apps |
+| `entry.asm`, `l2.cmd` | Entry point and link map, shared by both apps: L2 (0x11800000–0x1182C000) for everything not marked otherwise, and the app DDR window (0xC0000000–0xC00FFFFF) for `.ddrtext`, `.ddrdata` and `.ddrbss` (section 7) |
 | `core.c`, `core.h` | Start-up, the main loop, the LCD console, the core words, the app hooks |
 | `main.c` | The plain Forth app: the core with no hooks, and the place for ad hoc words |
 | `forth.c` | A small Forth: threaded code (32 KB), data space (16 KB), integer words, compiling words, `DO … LOOP`, `BEGIN … UNTIL` |
@@ -58,7 +58,7 @@ forth_word("TWICE", w_twice);
 
 - 512 dictionary entries, 32 KB of compiled code, 16 KB of data space (`HERE`, `ALLOT`, `VARIABLE`, `CREATE`), 64 C words.
 - Cells are 32 bits and arithmetic is integer only.
-- It all lives in the DSP's internal L2 RAM with the rest of the app.
+- The dictionary, the code area and the data space are in the app DDR window (`.ddrbss`, section 7); the stacks and the interpreter are in L2. `HERE` and `VARIABLE` addresses are therefore 0xC000xxxx, which `.` prints as negative numbers; `U.` and `HEX` show them plainly.
 - `@`, `!`, `C@`, `W@` and the like reach any address, so a line of Forth can read or write hardware registers directly.
 - Nothing persists: `RELOAD`, `BYE` or switching off starts again with an empty user dictionary.
 
@@ -101,6 +101,7 @@ Standard words include `: ; IF ELSE THEN DO LOOP +LOOP I J BEGIN UNTIL WHILE REP
 | `SD-READD` | ( block count addr -- err ) | the same with EDMA (experimental) |
 | `SD-WRITE` | ( block addr -- err ) | write one block. **No range check**: it will write over the filesystem if you ask it to |
 | `SD-WRITES` | ( block addr n -- err ) | write n blocks (runs of up to 128). **No range check either** |
+| `SD-BUSY` | ( block blocks runs -- ) | write `runs` bursts of `blocks` (1–128) blocks at block and report the card's programming time after each write (average and worst), throughput and the slowest write; only before the first partition, never with USB storage on. Run it under an app's real load to size buffers |
 | `SD-TEST` | ( block n seed -- bad ) | write n (1–128) blocks of a seeded pattern, read them back one at a time, compare; only blocks 1–8191, before the usual partition start. -1 = all match, else the first differing byte (-2 refused, -3 read error, -4 write error) |
 | `MSC-RW`, `MSC-RO` | | turn USB storage on, writable / read-only (reconnects) |
 | `MSC-OFF` | | turn USB storage off (refused while the computer is using the card) |
@@ -116,6 +117,7 @@ Standard words include `: ; IF ELSE THEN DO LOOP +LOOP I J BEGIN UNTIL WHILE REP
 | `SD-WCMP` | ( block n seed -- bad ) | one CMD25 of n (2–128) blocks with the `SD-FLAGS` flags, read back one at a time, compare; only before the first partition (read from the MBR) and below 8192 |
 | `SD-FLAGS` | ( mask -- ) | MMCCMD flags for those two words: any of `80` (PPLEN), `8000` (DCLR), `10000` (DMATRIG, what the driver uses); the default is `8080`, the old flags, so the fault shows |
 | `SD-CLK` | ( clkrt -- ) | card clock 90 MHz / (clkrt + 1), 3–255; `SD-INIT` puts it back to 3 (22.5 MHz) |
+| `FSEEK-TEST` | ( -- ) | reads `A:\R8SYS.BIN` through `fat_map`: extents, a sequential pass with its rate and CRC-32 (compare with the computer's), and 50 random unaligned `fat_read_at` reads checked against it, with the slowest |
 
 To time the driver itself, wrap a word in `TICKS` (360 MHz), for example `HEX : TRD TICKS >R C0100000 SD-READN TICKS R> - ; DECIMAL`, then `100000 2048 TRD 360 / . .` prints microseconds and the error code.
 
@@ -156,6 +158,7 @@ To time the driver itself, wrap a word in `TICKS` (360 MHz), for example `HEX : 
 | `FADERS` | | read every fader position from the panel |
 | `LCD-VOL` | ( 0..63 -- ) | LCD contrast, raw (`81 vv`; 11–21 usable on our unit) |
 | `CONTRAST` | ( 1..8 -- ) | LCD contrast as stock's setting (5 = default = `81 12`) |
+| `DDR-INFO` | | the app DDR window, where `.ddrbss` lies, and a check that the loader placed `.ddrdata` (section 7) |
 
 ## Using the looper from the panel (sampler app)
 

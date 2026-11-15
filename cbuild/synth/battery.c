@@ -2,14 +2,23 @@
 #include "battery.h"
 #include "panel.h"
 #define BATT_SETTING ((volatile u32 *)0xC05B60C8u)      /* stock 1.17: the BATTERY setting word */
+#define BATT_COPY ((volatile u32 *)0xC03FFFE0u)         /* 'R8BT' + the setting, saved by the chooser (next to the launch info) */
+#define BATT_MAGIC 0x54423852u
 #define GP6_1 (1u << 1)                                 /* in the bank 6/7 IN register */
 int batt_type = 1, batt_on_usb = 1;
 u32 batt_empty_us = 4000000u;
 static u32 last, shift = 7, below_us, t_frac;
 static int state;
-void battery_init(void)
+void battery_init_stock(void)
 {
     u32 v = *BATT_SETTING;
+    BATT_COPY[1] = v; BATT_COPY[0] = BATT_MAGIC;
+    batt_type = v == 0 ? 0 : 1;
+    last = TSCL;
+}
+void battery_init(void)
+{
+    u32 v = BATT_COPY[0] == BATT_MAGIC ? BATT_COPY[1] : *BATT_SETTING;
     batt_type = v == 0 ? 0 : 1;
     last = TSCL;
 }

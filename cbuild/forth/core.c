@@ -12,7 +12,7 @@
 #include "panel.h"
 #include "battery.h"
 #include "clock.h"
-extern u8 __r8_bss_start[], __r8_bss_end[];
+extern u8 __r8_bss_start[], __r8_bss_end[], __r8_ddrbss_start[], __r8_ddrbss_end[];
 void audio_pump(void) {}            /* lcd.c calls it */
 
 static const struct core_app *app;
@@ -230,6 +230,42 @@ static void w_sd_writes(void)                                                   
 /* ( block n seed -- bad ) write n blocks of a seeded pattern from DDR, read them back, compare. Only inside the
    unpartitioned gap (blocks 1..8191) so it can never touch the filesystem. bad = -1 if all bytes match, else the
    first mismatching byte offset (-2: refused, -3: read error, -4: write error). */
+/* ( block blocks runs -- ) write `runs` bursts of `blocks` (1..128) blocks at block, each one CMD25 as sd_write sends
+   it, and report the card's programming (busy) time: average and worst, plus throughput and the slowest whole write.
+   Only in the unpartitioned gap (1 .. the first partition's start - 1, and below 8192), never while USB storage is
+   on. Run it under an app's real interrupt load to see what a streaming scheduler must allow for. */
+#pragma CODE_SECTION(w_sd_busy, ".ddrtext")
+static void w_sd_busy(void)
+{
+    u32 runs = (u32)forth_pop(), n = (u32)forth_pop(), b = (u32)forth_pop();
+    if (forth_failed()) return;
+    if (msc_present) { puts_(" USB storage is on: MSC-OFF first "); return; }
+    if (!sd_ready && sd_init()) { puts_(" no card "); return; }
+    u32 *mbr = (u32 *)0xC0200000u;
+    if (sd_read(0, mbr)) { puts_(" MBR read failed "); return; }
+    const u8 *m = (const u8 *)mbr;
+    u32 start = m[0x1C6] | m[0x1C7] << 8 | m[0x1C8] << 16 | (u32)m[0x1C9] << 24, lim = start < 8192 ? start : 8192;
+    if (m[510] != 0x55 || m[511] != 0xAA || !start || !n || n > 128 || !runs || b < 1 || b + n > lim) {
+        puts_(" only blocks 1.."); forth_dot((int)lim - 1); puts_("(the gap), 1..128 blocks "); return;
+    }
+    u8 *w = (u8 *)0xC0100000u; u32 x = b * 2654435761u + 1;
+    for (u32 i = 0; i < n * 512; i++) { x = x * 1103515245u + 12345u; w[i] = (u8)(x >> 16); }
+    sd_busy_max = 0;
+    u32 sum = 0, worst = 0, t0 = TSCL;
+    for (u32 k = 0; k < runs && !forth_abort; k++) {
+        u32 t = TSCL;
+        int e = sd_write(b, n, w);
+        u32 dt = TSCL - t;
+        if (e) { sd_report(e); return; }
+        sum += sd_busy_last / 360; if (dt > worst) worst = dt;
+        forth_poll();
+    }
+    u32 us = (TSCL - t0) / 360;
+    puts_(" runs "); forth_dot((int)runs); puts_("x"); forth_dot((int)n); puts_("blocks: ");
+    forth_dot((int)us); puts_("us, "); forth_dot(us ? (int)(runs * n * 512 / us) : 0); puts_("bytes/us; busy avg ");
+    forth_dot((int)(sum / runs)); puts_("us, max "); forth_dot((int)(sd_busy_max / 360)); puts_("us; slowest write ");
+    forth_dot((int)(worst / 360)); puts_("us ");
+}
 static void w_sd_test(void)
 {
     u32 seed = (u32)forth_pop(), n = (u32)forth_pop(), b = (u32)forth_pop();
@@ -427,6 +463,17 @@ static void w_bye(void)                                     /* ( -- ) back to th
     app_stop(); usb_disconnect();
     r8_restart();
 }
+/* DDR-INFO ( -- ): the app DDR window (l2.cmd) and a check that the loader put .ddrdata in place. The word itself is
+   .ddrtext and the check word is .ddrdata, so it exercises all three DDR section kinds with .ddrbss (forth.c). */
+#pragma DATA_SECTION(ddr_check, ".ddrdata")
+static u32 ddr_check[2] = { 0x52384444u, 0x0002A5A5u };   /* 'R8DD', format 2 */
+#pragma CODE_SECTION(w_ddr_info, ".ddrtext")
+static void w_ddr_info(void)
+{
+    puts_(" DDR window C0000000-C00FFFFF; .ddrbss "); forth_hex((u32)__r8_ddrbss_start, 8); puts_("-"); forth_hex((u32)__r8_ddrbss_end, 8);
+    puts_("; .ddrdata check at "); forth_hex((u32)ddr_check, 8);
+    puts_(ddr_check[0] == 0x52384444u && ddr_check[1] == 0x0002A5A5u ? " ok " : " WRONG ");
+}
 static void banner(void)
 {
     puts_("\r\n"); puts_(app && app->title ? app->title : "R8 Forth");
@@ -436,9 +483,10 @@ static void banner(void)
 void core_init(const struct core_app *a)
 {
     for (u8 *p = __r8_bss_start; p < __r8_bss_end; p++) *p = 0;
+    for (u8 *p = __r8_ddrbss_start; p < __r8_ddrbss_end; p++) *p = 0;     /* and the DDR window's .ddrbss */
     app = a;
     TSCL = 0;
-    battery_init();                                          /* stock's BATTERY setting, before DDR is reused */
+    battery_init();                                          /* the BATTERY setting the chooser saved (battery.h) */
     psc_enable(PSC1, 3); psc_enable(PSC1, 10); psc_enable(PSC1, 13);
     pinmux_stock();
     lcd_init();
@@ -457,6 +505,7 @@ void core_init(const struct core_app *a)
     forth_word("RATE", w_rate); forth_word(".RATE", w_dot_rate); forth_word("CLK-RAW", w_clk_raw);
     forth_word("PANEL-MON", w_panel_mon); forth_word("PANEL-TX", w_panel_tx); forth_word("FADERS", w_faders);
     forth_word("LCD-VOL", w_lcd_vol); forth_word("CONTRAST", w_contrast);
+    forth_word("DDR-INFO", w_ddr_info); forth_word("SD-BUSY", w_sd_busy);
 }
 
 void core_run(void)

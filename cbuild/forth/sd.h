@@ -17,5 +17,6 @@ u32 sd_clkrt(void);
 int sd_write_long(u32 block, u32 count, const void *buf, u32 limit);   /* one CMD25, 2..128 blocks, only in 1..limit-1 (<= 8191) */
 int sd_write(u32 block, u32 count, const void *buf);   /* count blocks from buf (word aligned); waits until programmed */
 extern u32 sd_last_status;                   /* card status (R1) from the last CMD13 */
+extern u32 sd_busy_last, sd_busy_max;        /* cycles (360 MHz) waiting for the card to finish programming a write: last, most */
 extern u32 sd_blocks, sd_hc, sd_rca, sd_ready, sd_ocr, sd_cid[4], sd_csd[4], sd_last_st;
 #endif

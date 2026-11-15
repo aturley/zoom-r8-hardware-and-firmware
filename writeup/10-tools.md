@@ -34,7 +34,7 @@ All are in `tools/` in this repository unless noted.
 | `cbuild/*/build.sh` | Compile and link with `cl6x` and our own minimal runtime |
 | `standalone_c.py` | Wrap a C program in the stock header and boot commands as a standalone R8SYS.BIN |
 | `appmenu.py` | Build the app-launcher firmware (stock plus a RUN APP menu item) |
-| `mkapp.py` | Wrap an app as `APP.BIN` with the `R8AP` header (load address, length, entry, CRC-32) |
+| `mkapp.py` | Wrap an app as `APP.BIN` with the `R8AP` header (load address, length, entry, CRC-32); version 2 adds the DDR window's segments (section 7) |
 | `utilmenu.py` | Build the launcher firmware with RUN UTIL added to TOOL → SD CARD |
 | `mkutil.py` | Wrap a utility (or `UTILMENU.SYS`) with the same header and magic `R8UT` |
 | `mkfont.py` | Turn the font drawing `cbuild/forth/font.txt` (our own 5×7 design, one glyph per block of `#` and `.`) into `font.h`; it refuses two glyphs that look the same, since tests read the screen back by glyph. `--stock R8SYS.BIN` instead copies the stock font from your own 1.17 firmware into `font_stock.h`, which the app builds use when run with `FONT=stock` (`cbuild/font.sh`); keep such binaries to yourself |

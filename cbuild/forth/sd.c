@@ -313,6 +313,7 @@ static int wait_ready(u32 ms)
     }
 }
 #define SD_WMAX 128u                        /* 64 KB: the largest run tested on the R8 */
+u32 sd_busy_last, sd_busy_max;              /* CPU cycles spent waiting for the card to finish programming a write */
 static int write_run(u32 block, u32 count, const void *buf, u32 flags)
 {
     int e = wait_ready(500);
@@ -336,7 +337,9 @@ static int write_run(u32 block, u32 count, const void *buf, u32 flags)
     int stop = count > 1 || (st & (CRCWR | TOUTRD)) || late || n < total;   /* the card may still be receiving */
     st |= S(MMCST0);                                       /* before cmd() clears it */
     if (stop) cmd(12, 0, R1);                              /* STOP_TRANSMISSION (busy covered by CMD13 below) */
-    int r = wait_ready(1000);
+    u32 tb = TSCL;
+    int r = wait_ready(1000);                              /* the card programs the data: busy */
+    sd_busy_last = TSCL - tb; if (sd_busy_last > sd_busy_max) sd_busy_max = sd_busy_last;
     st |= S(MMCST0);                                       /* a CRC status error can come after DATDNE */
     sd_last_st = st;
     int bad = late || (st & (TOUTRS | TOUTRD | CRCRS | CRCWR)) || n < total;

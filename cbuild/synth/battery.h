@@ -2,13 +2,16 @@
 #define BATTERY_H
 /* Low-battery detection for apps, as the stock firmware does it (writeup section 5, "Power"): only while running on
    batteries (GP6[1] low, debounced), comparing the panel's supply value C1 with the thresholds stock uses for the
-   BATTERY setting (0 = Alkaline, 1 = Ni-MH; read from stock's memory at start-up).
+   BATTERY setting (0 = Alkaline, 1 = Ni-MH). Stock keeps it at 0xC05B60C8, which apps' DDR buffers may overwrite, so
+   the chooser copies it to 0xC03FFFE0 ('R8BT', value) and apps read that.
    LOW:   C1 below stock's level-1 point (Alkaline 213, Ni-MH 233; about 4.6 / 4.96 V): warn, finish writing files.
    EMPTY: C1 below stock's level-0 point (Alkaline 203, Ni-MH 228; about 4.38 / 4.87 V) for batt_empty_us in a row:
           switch off (power hold GP7[0] low). */
 #include "hw.h"
 enum { BATT_OK, BATT_LOW, BATT_EMPTY };
-void battery_init(void);            /* call first in main(): reads stock's BATTERY setting before DDR is reused */
+void battery_init(void);            /* call first in main(): the BATTERY setting, from the chooser's saved copy (stock's
+                                       own word may already be overwritten by an earlier app's DDR buffers) */
+void battery_init_stock(void);      /* the chooser only (it always starts fresh from stock): read stock's word, save a copy */
 int  battery_poll(void);            /* call often from the main loop; returns BATT_OK / BATT_LOW / BATT_EMPTY */
 extern int batt_type;               /* 0 Alkaline, 1 Ni-MH (an unknown value is treated as Ni-MH: earlier cut-off) */
 extern int batt_on_usb;             /* debounced GP6[1] */

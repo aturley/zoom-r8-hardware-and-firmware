@@ -251,7 +251,7 @@ int main(void)
 {
     for (u8 *p = __r8_bss_start; p < __r8_bss_end; p++) *p = 0;
     TSCL = 0;
-    battery_init();                                          /* stock's BATTERY setting, before DDR is reused */
+    battery_init();                                          /* the BATTERY setting the chooser saved (battery.h) */
     psc_enable(PSC1, 3); psc_enable(PSC1, 10); psc_enable(PSC1, 13);
     pinmux_stock();
     lcd_init();
