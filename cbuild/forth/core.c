@@ -182,7 +182,7 @@ void core_puts(const char *s) { while (*s) forth_emit(*s++); }
 
 /* ---- SD card words */
 static u32 blkbuf[128];
-static const char *const sd_err[] = { "ok", "no card", "timeout", "CRC error", "init failed", "data error", "beyond the card", "card reports write error" };
+static const char *const sd_err[] = { "ok", "no card", "timeout", "CRC error", "init failed", "data error", "beyond the card", "card reports write error", "card busy" };
 static void sd_report(int e) { if (e) { puts_(" SD: "); puts_(sd_err[e]); puts_(" (MMCST0 "); forth_hex(sd_last_st, 4); puts_(") "); } }
 static void w_sd_init(void) { int e = sd_init(); sd_report(e); forth_push(e); }       /* ( -- err ) */
 static void w_sd_read(void)                                                           /* ( block addr -- err ) */

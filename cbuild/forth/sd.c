@@ -137,9 +137,11 @@ int sd_init(void)
     return SD_OK;
 }
 
+static int settle(void);                    /* finish a pending sd_write_start before using the card */
 int sd_read(u32 block, void *buf)
 {
     if (!sd_ready) return SD_ENOCARD;
+    { int se = settle(); if (se) return se; }
     if (block >= sd_blocks) return SD_ERANGE;
     u32 *p = (u32 *)buf, n = 0;
     S(MMCBLEN) = 512; S(MMCNBLK) = 1;
@@ -171,6 +173,7 @@ static int read_run(u32 block, u32 count, void *buf, u32 flags);
 int sd_read_n(u32 block, u32 count, void *buf)
 {
     if (!sd_ready) return SD_ENOCARD;
+    { int se = settle(); if (se) return se; }
     if (!count || block >= sd_blocks || count > sd_blocks - block) return SD_ERANGE;
     u8 *p = (u8 *)buf;
     while (count) {
@@ -231,6 +234,7 @@ static int dma_run(u32 block, u32 count, void *buf, u32 flags);
 int sd_read_dma(u32 block, u32 count, void *buf)
 {
     if (!sd_ready) return SD_ENOCARD;
+    { int se = settle(); if (se) return se; }
     if (!count || block >= sd_blocks || count > sd_blocks - block) return SD_ERANGE;
     u8 *p = (u8 *)buf;
     while (count) {
@@ -314,7 +318,8 @@ static int wait_ready(u32 ms)
 }
 #define SD_WMAX 128u                        /* 64 KB: the largest run tested on the R8 */
 u32 sd_busy_last, sd_busy_max;              /* CPU cycles spent waiting for the card to finish programming a write */
-static int write_run(u32 block, u32 count, const void *buf, u32 flags)
+static int wr_pending; static u32 wr_t0;    /* sd_write_start: the card is (maybe) still programming, since wr_t0 */
+static int write_run(u32 block, u32 count, const void *buf, u32 flags, int wait_end)
 {
     int e = wait_ready(500);
     if (e) return e;
@@ -337,9 +342,11 @@ static int write_run(u32 block, u32 count, const void *buf, u32 flags)
     int stop = count > 1 || (st & (CRCWR | TOUTRD)) || late || n < total;   /* the card may still be receiving */
     st |= S(MMCST0);                                       /* before cmd() clears it */
     if (stop) cmd(12, 0, R1);                              /* STOP_TRANSMISSION (busy covered by CMD13 below) */
-    u32 tb = TSCL;
-    int r = wait_ready(1000);                              /* the card programs the data: busy */
-    sd_busy_last = TSCL - tb; if (sd_busy_last > sd_busy_max) sd_busy_max = sd_busy_last;
+    u32 tb = TSCL; int r = 0;
+    if (wait_end) {
+        r = wait_ready(1000);                              /* the card programs the data: busy */
+        sd_busy_last = TSCL - tb; if (sd_busy_last > sd_busy_max) sd_busy_max = sd_busy_last;
+    } else { wr_pending = 1; wr_t0 = tb; }                  /* sd_busy() / settle() finish it */
     st |= S(MMCST0);                                       /* a CRC status error can come after DATDNE */
     sd_last_st = st;
     int bad = late || (st & (TOUTRS | TOUTRD | CRCRS | CRCWR)) || n < total;
@@ -353,15 +360,52 @@ static int write_run(u32 block, u32 count, const void *buf, u32 flags)
 int sd_write(u32 block, u32 count, const void *buf)
 {
     if (!sd_ready) return SD_ENOCARD;
+    { int se = settle(); if (se) return se; }
     if (!count || block >= sd_blocks || count > sd_blocks - block) return SD_ERANGE;
     const u8 *p = (const u8 *)buf;
     while (count) {
         u32 n = count < SD_WMAX ? count : SD_WMAX;
-        int e = write_run(block, n, p, DATA_FLAGS);
+        int e = write_run(block, n, p, DATA_FLAGS, 1);
         if (e) return e;
         block += n; count -= n; p += n * 512;
     }
     return SD_OK;
+}
+
+/* Split writes, for code that must not stall while the card programs (streaming): sd_write_start sends the data and
+   returns; the card then programs it (busy) while the caller does other work, checking with sd_busy(). Any other card
+   access waits for it first (settle). One write may be pending at a time. */
+static int settle(void)
+{
+    if (!wr_pending) return SD_OK;
+    int r = wait_ready(1000);
+    sd_busy_last = TSCL - wr_t0; if (sd_busy_last > sd_busy_max) sd_busy_max = sd_busy_last;
+    wr_pending = 0;
+    return r;
+}
+int sd_busy(void)
+{
+    if (!wr_pending) return SD_OK;
+    int e = cmd(13, sd_rca << 16, R1);
+    u32 t = TSCL - wr_t0;
+    if (!e) {
+        u32 s = sd_last_status = rsp();
+        if (s & ST_ERRORS) { wr_pending = 0; return SD_EWRITE; }
+        if (((s >> 9) & 15) == 4 && (s & 0x100)) {       /* back in the transfer state, ready for data */
+            sd_busy_last = t; if (t > sd_busy_max) sd_busy_max = t;
+            wr_pending = 0; return SD_OK;
+        }
+    }
+    if (t > CPU_HZ) { wr_pending = 0; return SD_ETIMEOUT; }
+    return SD_EBUSY;
+}
+int sd_write_start(u32 block, u32 count, const void *buf)
+{
+    if (!sd_ready) return SD_ENOCARD;
+    if (!count || count > SD_WMAX || block >= sd_blocks || count > sd_blocks - block) return SD_ERANGE;
+    int b = sd_busy();
+    if (b) return b;                                       /* SD_EBUSY: the previous write is still programming */
+    return write_run(block, count, buf, DATA_FLAGS, 0);
 }
 
 /* ---- experiments (SD-RCMP, SD-FLAGS, SD-CLK in the Forth core): one CMD18 for the whole request, as stock does
@@ -371,6 +415,7 @@ int sd_write(u32 block, u32 count, const void *buf)
 u32 sd_xflags = DCLR | PPLEN;                              /* data-command flags for sd_read_long (our usual ones) */
 int sd_read_long(u32 block, u32 count, void *buf, int dma)
 {
+    if (sd_ready) { int se = settle(); if (se) return se; }
     if (!sd_ready) return SD_ENOCARD;
     if (count < 2 || count > 128 || block >= sd_blocks || count > sd_blocks - block) return SD_ERANGE;
     u32 f = sd_xflags & (DCLR | PPLEN | DMATRIG);
@@ -387,8 +432,9 @@ u32 sd_clkrt(void) { return S(MMCCLK) & 0xFF; }
    the caller passes the first partition's start (at most 8192): it can never touch the filesystem. */
 int sd_write_long(u32 block, u32 count, const void *buf, u32 limit)
 {
+    if (sd_ready) { int se = settle(); if (se) return se; }
     if (!sd_ready) return SD_ENOCARD;
     if (limit > 8192) limit = 8192;
     if (count < 2 || count > 128 || block < 1 || block + count > limit) return SD_ERANGE;
-    return write_run(block, count, buf, sd_xflags & (DCLR | PPLEN | DMATRIG));
+    return write_run(block, count, buf, sd_xflags & (DCLR | PPLEN | DMATRIG), 1);
 }

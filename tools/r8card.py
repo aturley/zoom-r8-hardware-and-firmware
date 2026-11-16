@@ -7,7 +7,8 @@
     python3 tools/r8card.py deploy --no-reload utils
 
 Names: chooser, forth, sampler, blippoo, padtest, powerlog, utils (UTILMENU.SYS and every utility), launcher
-(out/R8SYS.BIN to the card root; flashing it is still the R8's own update, by hand), or "apps" (the six apps).
+(out/R8SYS.BIN to the card root; flashing it is still the R8's own update, by hand), "apps" (the six apps), or the
+folder name of any other app in cbuild/ whose build.sh makes out/<NAME>.BIN (it goes to R8APPS/<NAME>.BIN).
 
 The R8 must be running the Forth app or the sampler (they provide USB storage and RELOAD), connected by USB.
 deploy does, in order, and stops at the first problem: build (--build) -> MSC-RW -> wait for the card to mount ->
@@ -53,8 +54,11 @@ def files_for(names):
             out += utils_files()
         elif n in APPS:
             out += APPS[n]
+        elif os.path.isfile(os.path.join(ROOT, 'cbuild', n, 'build.sh')):     # any other app: cbuild/<n>/out/<N>.BIN
+            out.append((f'cbuild/{n}/out/{n.upper()}.BIN', f'R8APPS/{n.upper()}.BIN'))
         else:
-            sys.exit(f'unknown name {n!r}; use: ' + ', '.join(list(APPS) + ['utils', 'apps']))
+            sys.exit(f'unknown name {n!r}; use: ' + ', '.join(list(APPS) + ['utils', 'apps']) +
+                     ', or the folder name of an app in cbuild/ that builds out/<NAME>.BIN')
     return out
 
 
@@ -187,12 +191,13 @@ def status(args):
 def deploy(args):
     pairs = files_for(args.names)
     if args.build:
-        names = {n for n in args.names if n in BUILD}
+        names = {n for n in args.names if n in BUILD or (n not in APPS and n not in ('apps', 'launcher')
+                                                         and os.path.isfile(os.path.join(ROOT, 'cbuild', n, 'build.sh')))}
         if 'apps' in args.names:
             names |= {'chooser', 'forth', 'sampler', 'blippoo', 'padtest', 'powerlog'}
         for n in sorted(names):
             say(f'build {n}')
-            r = subprocess.run([os.path.join(ROOT, BUILD[n])], capture_output=True, text=True)
+            r = subprocess.run([os.path.join(ROOT, BUILD.get(n, f'cbuild/{n}/build.sh'))], capture_output=True, text=True)
             if r.returncode:
                 sys.exit(f'build of {n} failed:\n' + (r.stdout + r.stderr)[-2000:])
         pairs = files_for(args.names)

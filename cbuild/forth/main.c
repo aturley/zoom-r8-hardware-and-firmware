@@ -139,6 +139,59 @@ static void w_fseek_test(void)
     forth_dot((int)(worst / 360)); puts_("us ");
 }
 
+/* FWRITE-TEST ( -- ): the streaming writer on the real card. Writes a new 8 MB file A:\STRMTEST.BIN (or STRMTST2.BIN
+   .. STRMTST9.BIN if that exists) in 64-block chunks with fat_wwrite, retrying on FAT_AGAIN; patches its first 16 bytes; closes it step by
+   step; reads it back through a map and compares. Prints retries, the longest single call, close steps and rates.
+   It creates a file in the card's filesystem: delete it from the computer afterwards. */
+#define WT_SIZE (8u << 20)
+#define WT_SRC ((u8 *)0xC0400000u)
+#define WT_BACK ((u8 *)0xC1000000u)
+#define WT_EXT ((fat_ext *)0xC1F00000u)
+#define WT_MEXT ((fat_ext *)0xC1F10000u)
+#pragma CODE_SECTION(w_fwrite_test, ".ddrtext")
+static void w_fwrite_test(void)
+{
+    static fat_ent root, e; static fat_wr_t w; static fat_map_t m;
+    if (fat_find("", &root)) { puts_(" no FAT32 card "); return; }
+    static char path[13] = "STRMTEST.BIN", n83[12] = "STRMTESTBIN";
+    for (int k = 1; ; k++) {                                   /* the first free name of STRMTEST, STRMTST2 .. STRMTST9 */
+        if (k > 1) { path[5] = n83[5] = 'S'; path[6] = n83[6] = 'T'; path[7] = n83[7] = (char)('0' + k); }   /* STRMTST2 */
+        if (fat_find(path, &e)) break;
+        if (k == 9) { puts_(" STRMTEST.BIN .. STRMTST9.BIN all exist: delete them "); return; }
+    }
+    puts_(" "); puts_(path);
+    u32 x = TSCL | 1; for (u32 i = 0; i < WT_SIZE + 100; i++) { x = x * 1103515245u + 12345u; WT_SRC[i] = (u8)(x >> 16); }
+    int r = fat_wopen(&w, &root, n83, WT_EXT, 512);
+    if (r) { puts_(" fat_wopen error "); forth_dot(r); return; }
+    u32 off = 0, again = 0, calls = 0, worst = 0, taken, t0 = TSCL, total = WT_SIZE + 100;
+    while (off < total) {
+        u32 n = total - off; if (n > 32768) n = 32768; if (n >= 512) n -= n % 512;
+        u32 t = TSCL;
+        r = fat_wwrite(&w, WT_SRC + off, n, &taken);
+        t = TSCL - t; if (t > worst) worst = t; calls++;
+        if (r == FAT_AGAIN) { again++; continue; }
+        if (r) { puts_(" fat_wwrite error "); forth_dot(r); fat_wabort(&w); return; }
+        off += taken;
+        if ((calls & 63) == 0) forth_poll();
+    }
+    u32 wus = (TSCL - t0) / 360;
+    const char tag[16] = { 'S', 'T', 'R', 'E', 'A', 'M', ' ', 'T', 'E', 'S', 'T', ' ', 'O', 'K', '!', '!' };
+    for (int i = 0; i < 16; i++) WT_SRC[i] = (u8)tag[i];
+    r = fat_wpatch(&w, 0, WT_SRC, 16);
+    if (r) { puts_(" fat_wpatch error "); forth_dot(r); fat_wabort(&w); return; }
+    u32 steps = 0, cworst = 0;
+    do { u32 t = TSCL; r = fat_wclose(&w); t = TSCL - t; if (t > cworst) cworst = t; steps++; } while (r == FAT_AGAIN);
+    if (r) { puts_(" fat_wclose error "); forth_dot(r); return; }
+    puts_(" wrote "); forth_dot((int)total); puts_("bytes in "); forth_dot((int)wus); puts_("us = ");
+    forth_dot(wus ? (int)(total / wus) : 0); puts_("bytes/us; "); forth_dot((int)calls); puts_("calls, ");
+    forth_dot((int)again); puts_("FAT_AGAIN, longest call "); forth_dot((int)(worst / 360)); puts_("us; ");
+    forth_dot((int)w.n); puts_("runs; close "); forth_dot((int)steps); puts_("steps, longest "); forth_dot((int)(cworst / 360)); puts_("us;");
+    if (fat_find(path, &e) || e.size != total) { puts_(" not found after close "); return; }
+    if (fat_map(&e, &m, WT_MEXT, 512) || fat_read_at(&m, 0, WT_BACK, total)) { puts_(" read back failed "); return; }
+    u32 bad = 0; for (u32 i = 0; i < total; i++) if (WT_BACK[i] != WT_SRC[i]) { bad++; break; }
+    puts_(bad ? " read back DIFFERS " : " read back same ");
+}
+
 static const struct core_app forth_app = { "FORTH", "R8 Forth" };   /* no hooks: the console owns everything */
 
 int main(void)
@@ -146,6 +199,6 @@ int main(void)
     core_init(&forth_app);
     /* ad hoc words go here, e.g. forth_word("MY-TEST", w_my_test); */
     forth_word("SD-RCMP", w_sd_rcmp); forth_word("SD-FLAGS", w_sd_flags); forth_word("SD-CLK", w_sd_clk); forth_word("SD-WCMP", w_sd_wcmp);
-    forth_word("FSEEK-TEST", w_fseek_test);
+    forth_word("FSEEK-TEST", w_fseek_test); forth_word("FWRITE-TEST", w_fwrite_test);
     core_run();
 }

@@ -12,7 +12,7 @@ typedef struct {
     char name83[13];                /* the 8.3 name as "NAME.EXT" ("." and ".." for those entries) */
     u16 date, time;                 /* modification date and time, FAT format (the R8 writes 2011-01-01; we 2026-01-01) */
 } fat_ent;
-enum { FAT_OK, FAT_SD, FAT_NOFS, FAT_NOTFOUND, FAT_TOOBIG, FAT_EXISTS };
+enum { FAT_OK, FAT_SD, FAT_NOFS, FAT_NOTFOUND, FAT_TOOBIG, FAT_EXISTS, FAT_AGAIN, FAT_STATE };
 int fat_mount(void);                                   /* FAT_OK, or FAT_SD / FAT_NOFS */
 int fat_find(const char *path, fat_ent *e);            /* "ZOOM_R8/LOOP"; the root is "" */
 /* Directory entries one by one: *pos starts at 0; returns 1 with the next entry (skipping deleted entries and
@@ -46,4 +46,32 @@ int fat_map(const fat_ent *e, fat_map_t *m, fat_ext *ext, u32 max);
 int fat_read_some(const fat_map_t *m, u32 off, void *dst, u32 n, u32 max_blocks, u32 *got);
 /* Read exactly n bytes at off (FAT_TOOBIG if that runs past the end), in runs of up to 128 blocks. */
 int fat_read_at(const fat_map_t *m, u32 off, void *dst, u32 n);
+
+/* Streaming writer: one new file written in bounded steps while other work goes on (recording while audio plays).
+   Nothing reaches the FAT or the directory until fat_wclose, in the same safe order as fat_create (data, then the
+   cluster chain, then the directory entry), so an interrupted recording only leaves unlinked clusters (and possibly a
+   deleted directory entry). One writer at a time; while it is open, fat_create avoids its clusters, slot and name.
+   - fat_wopen: name83 as for fat_create; ext/max_ext: a caller-allocated array (DDR) for the file's runs of
+     clusters, as fat_map's (each run is up to 2048 clusters; a full card fragments more).
+   - fat_wwrite: writes the start of data[0..n): whole blocks (data word aligned) in one command of up to 128 blocks
+     within one run of clusters, or, if n < 512, the final partial block (zero padded; after it only fat_wpatch and
+     fat_wclose are allowed). *taken = bytes consumed; pass the rest again. FAT_AGAIN (nothing taken): the previous
+     chunk is still programming, or more clusters are being found; call again later (each call is bounded).
+   - fat_wpatch: change n bytes at off inside one block already written (e.g. the WAV header's sizes), before close.
+   - fat_wclose: call until it returns something other than FAT_AGAIN; each call writes at most one FAT block (in
+     every FAT copy) or the directory entry.
+   - fat_wabort: forget the file; its clusters stay free. */
+typedef struct {
+    u32 size;                       /* bytes written so far */
+    u32 state, ck, scan, scanned;   /* (internal) */
+    fat_ext *ext; u32 n, max, nclus;
+    u32 dlba, doff;
+    char name83[12];
+    u32 tail[128];                  /* the zero-padded last block */
+} fat_wr_t;
+int fat_wopen(fat_wr_t *w, const fat_ent *dir, const char *name83, fat_ext *ext, u32 max_ext);
+int fat_wwrite(fat_wr_t *w, const void *data, u32 n, u32 *taken);
+int fat_wpatch(fat_wr_t *w, u32 off, const void *data, u32 n);
+int fat_wclose(fat_wr_t *w);
+void fat_wabort(fat_wr_t *w);
 #endif

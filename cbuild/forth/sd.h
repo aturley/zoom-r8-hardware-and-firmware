@@ -2,7 +2,7 @@
 #define SD_H
 #include "hw.h"
 /* SD card on MMCSD1 (the R8's card slot: PINMUX18/19 mode 2 = CLK, CMD, DAT0-3), polled, 512-byte blocks. */
-enum { SD_OK, SD_ENOCARD, SD_ETIMEOUT, SD_ECRC, SD_EINIT, SD_EDATA, SD_ERANGE, SD_EWRITE };
+enum { SD_OK, SD_ENOCARD, SD_ETIMEOUT, SD_ECRC, SD_EINIT, SD_EDATA, SD_ERANGE, SD_EWRITE, SD_EBUSY };
 int sd_init(void);
 int sd_read(u32 block, void *buf);            /* buf: 512 bytes, word aligned */
 int sd_read_n(u32 block, u32 count, void *buf);   /* runs of <= 128 blocks (CMD18 + CMD12, DMATRIG) */
@@ -16,6 +16,12 @@ int sd_set_clkrt(u32 clkrt);                  /* card clock 90 MHz / (CLKRT + 1)
 u32 sd_clkrt(void);
 int sd_write_long(u32 block, u32 count, const void *buf, u32 limit);   /* one CMD25, 2..128 blocks, only in 1..limit-1 (<= 8191) */
 int sd_write(u32 block, u32 count, const void *buf);   /* count blocks from buf (word aligned); waits until programmed */
+/* Split writes for streaming: sd_write_start sends 1..128 blocks (one command) and returns without waiting for the
+   card to program them (buf may be reused at once). sd_busy() is one cheap status command: SD_OK when the card is
+   done (or nothing is pending), SD_EBUSY while it is still programming, or an error. sd_write_start returns SD_EBUSY
+   (writing nothing) while the previous one is pending. Every other card call waits for a pending write first. */
+int sd_write_start(u32 block, u32 count, const void *buf);
+int sd_busy(void);
 extern u32 sd_last_status;                   /* card status (R1) from the last CMD13 */
 extern u32 sd_busy_last, sd_busy_max;        /* cycles (360 MHz) waiting for the card to finish programming a write: last, most */
 extern u32 sd_blocks, sd_hc, sd_rca, sd_ready, sd_ocr, sd_cid[4], sd_csd[4], sd_last_st;

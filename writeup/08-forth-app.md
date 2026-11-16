@@ -117,6 +117,7 @@ Standard words include `: ; IF ELSE THEN DO LOOP +LOOP I J BEGIN UNTIL WHILE REP
 | `SD-WCMP` | ( block n seed -- bad ) | one CMD25 of n (2–128) blocks with the `SD-FLAGS` flags, read back one at a time, compare; only before the first partition (read from the MBR) and below 8192 |
 | `SD-FLAGS` | ( mask -- ) | MMCCMD flags for those two words: any of `80` (PPLEN), `8000` (DCLR), `10000` (DMATRIG, what the driver uses); the default is `8080`, the old flags, so the fault shows |
 | `SD-CLK` | ( clkrt -- ) | card clock 90 MHz / (clkrt + 1), 3–255; `SD-INIT` puts it back to 3 (22.5 MHz) |
+| `FWRITE-TEST` | ( -- ) | writes a new 8 MB file `A:\STRMTEST.BIN` (or `STRMTST2.BIN` … `STRMTST9.BIN` if it exists) through the streaming writer in 64-block chunks, patches its first bytes, closes it step by step, reads it back and compares; prints the retries, the longest call and the close steps. Delete the file afterwards |
 | `FSEEK-TEST` | ( -- ) | reads `A:\R8SYS.BIN` through `fat_map`: extents, a sequential pass with its rate and CRC-32 (compare with the computer's), and 50 random unaligned `fat_read_at` reads checked against it, with the slowest |
 
 To time the driver itself, wrap a word in `TICKS` (360 MHz), for example `HEX : TRD TICKS >R C0100000 SD-READN TICKS R> - ; DECIMAL`, then `100000 2048 TRD 360 / . .` prints microseconds and the error code.
